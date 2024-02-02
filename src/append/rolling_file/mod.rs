@@ -20,10 +20,12 @@ use derivative::Derivative;
 use log::Record;
 use parking_lot::Mutex;
 use std::{
-    fs::{self, File, OpenOptions},
-    io::{self, BufWriter, Write},
-    path::{Path, PathBuf},
+    fs::{self, File, OpenOptions}, io::{self, BufWriter, Write}, path::{Path, PathBuf}
 };
+#[cfg(test)]
+use mock_instant::SystemTime;
+#[cfg(not(test))]
+use std::time::SystemTime;
 
 #[cfg(feature = "config_parsing")]
 use serde_value::Value;
@@ -84,6 +86,7 @@ impl<'de> serde::Deserialize<'de> for Policy {
 struct LogWriter {
     file: BufWriter<File>,
     len: u64,
+    filetime: SystemTime,
 }
 
 impl io::Write for LogWriter {
@@ -107,6 +110,7 @@ pub struct LogFile<'a> {
     writer: &'a mut Option<LogWriter>,
     path: &'a Path,
     len: u64,
+    filetime: SystemTime,
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -172,11 +176,13 @@ impl Append for RollingFileAppender {
 
         if is_pre_process {
             let len = log_writer.len;
+            let filetime = log_writer.filetime;
 
             let mut file = LogFile {
                 writer: &mut writer,
                 path: &self.path,
                 len,
+                filetime,
             };
 
             // TODO(eas): Idea: make this optionally return a future, and if so, we initialize a queue for
@@ -191,11 +197,13 @@ impl Append for RollingFileAppender {
             self.encoder.encode(log_writer, record)?;
             log_writer.flush()?;
             let len = log_writer.len;
+            let filetime = log_writer.filetime;
 
             let mut file = LogFile {
                 writer: &mut writer,
                 path: &self.path,
                 len,
+                filetime,
             };
 
             self.policy.process(&mut file)?;
@@ -229,9 +237,14 @@ impl RollingFileAppender {
             } else {
                 0
             };
+            #[cfg(not(test))]
+            let filetime = file.metadata()?.created()?;
+            #[cfg(test)]
+            let filetime = SystemTime::now();
             *writer = Some(LogWriter {
                 file: BufWriter::with_capacity(1024, file),
                 len,
+                filetime,
             });
         }
 

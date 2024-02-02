@@ -353,6 +353,7 @@ mod test {
             writer: &mut None,
             path: file.path(),
             len: 0,
+            filetime: SystemTime::now(),
         };
 
         let config = TimeTriggerConfig {
